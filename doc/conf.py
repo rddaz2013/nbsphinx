@@ -65,6 +65,27 @@ except Exception:
 # -- Options for HTML output ----------------------------------------------
 
 html_title = project + ' version ' + release
+html_theme = 'alabaster'
+html_theme_options = {
+    'description': 'Jupyter Notebooks + Sphinx',
+    'github_user': 'spatialaudio',
+    'github_repo': 'nbsphinx',
+    'github_button': True,
+    'github_type': 'star',
+    'github_banner': True,
+    'page_width': '1095px',
+    'fixed_sidebar': False,
+}
+html_sidebars = {
+    '**': [
+        'about.html',
+        #'globaltoc.html',
+        #'localtoc.html',
+        'navigation.html',
+        'searchbox.html',
+        #'sourcelink.html',
+    ]
+}
 
 # -- Options for LaTeX output ---------------------------------------------
 
