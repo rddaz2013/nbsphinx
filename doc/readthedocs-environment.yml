@@ -6,3 +6,5 @@ dependencies:
   - pandoc
   - nbconvert
   - ipykernel
+  - pip:
+    - cloud_sptheme
