@@ -4,6 +4,8 @@
 # Use sphinx-quickstart to create your own conf.py file!
 # After that, you have to edit a few things.  See below.
 
+import sphinx_bootstrap_theme
+
 # Select nbsphinx and, if needed, add a math extension (mathjax or pngmath):
 extensions = [
     'nbsphinx',
@@ -65,6 +67,19 @@ except Exception:
 # -- Options for HTML output ----------------------------------------------
 
 html_title = project + ' version ' + release
+html_theme = 'bootstrap'
+html_theme_path = sphinx_bootstrap_theme.get_html_theme_path()
+html_theme_options = {
+    'navbar_title': 'nbsphinx',
+    'navbar_site_name': 'Pages',
+    'navbar_pagenav_name': 'This Page',
+    'navbar_fixed_top': 'false',
+    'source_link_position': 'none',
+    #'bootswatch_theme': 'cosmo',
+    #'bootswatch_theme': 'lumen',
+    #'bootswatch_theme': 'sandstone',
+    'bootswatch_theme': 'spacelab',
+}
 
 # -- Options for LaTeX output ---------------------------------------------
 
