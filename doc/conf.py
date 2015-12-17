@@ -4,6 +4,8 @@
 # Use sphinx-quickstart to create your own conf.py file!
 # After that, you have to edit a few things.  See below.
 
+import sphinx_py3doc_enhanced_theme
+
 # Select nbsphinx and, if needed, add a math extension (mathjax or pngmath):
 extensions = [
     'nbsphinx',
@@ -65,6 +67,11 @@ except Exception:
 # -- Options for HTML output ----------------------------------------------
 
 html_title = project + ' version ' + release
+html_theme = "sphinx_py3doc_enhanced_theme"
+html_theme_path = [sphinx_py3doc_enhanced_theme.get_html_theme_path()]
+html_theme_options = {
+    'githuburl': 'https://github.com/spatialaudio/nbsphinx/',
+}
 
 # -- Options for LaTeX output ---------------------------------------------
 
