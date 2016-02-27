@@ -65,6 +65,7 @@ except Exception:
 # -- Options for HTML output ----------------------------------------------
 
 html_title = project + ' version ' + release
+html_theme = 'traditional'
 
 # -- Options for LaTeX output ---------------------------------------------
 
