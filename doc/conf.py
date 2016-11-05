@@ -4,6 +4,8 @@
 # Use sphinx-quickstart to create your own conf.py file!
 # After that, you have to edit a few things.  See below.
 
+from better import better_theme_path
+
 # Select nbsphinx and, if needed, add a math extension (mathjax or pngmath):
 extensions = [
     'nbsphinx',
@@ -65,6 +67,27 @@ except Exception:
 # -- Options for HTML output ----------------------------------------------
 
 html_title = project + ' version ' + release
+html_short_title = 'Home'
+html_theme_path = [better_theme_path]
+html_theme = 'better'
+html_theme_options = {
+    #'rightsidebar': True,
+    #'inlinecss': '',
+    #'cssfiles': ['_static/my_style.css'],
+    'showheader': False,
+    #'showrelbartop': False,
+    #'showrelbarbottom': False,
+    #'linktotheme': False,
+    #'sidebarwidth': '15rem',
+    #'textcolor': '#000000',
+    #'headtextcolor': '',
+    #'footertextcolor': '',
+    #'ga_ua': '',
+    #'ga_domain': '',
+}
+html_sidebars = {
+    '**': ['localtoc.html', 'sourcelink.html', 'searchbox.html'],
+}
 
 # -- Options for LaTeX output ---------------------------------------------
 
