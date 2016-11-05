@@ -6,3 +6,5 @@ dependencies:
   - pandoc
   - nbconvert
   - ipykernel
+  - pip:
+    - git+https://github.com/JuliaLang/JuliaDoc.git
