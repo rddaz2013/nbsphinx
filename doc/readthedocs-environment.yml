@@ -6,3 +6,5 @@ dependencies:
   - pandoc
   - nbconvert
   - ipykernel
+  - pip:
+    - guzzle_sphinx_theme
