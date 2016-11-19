@@ -43,6 +43,9 @@ html_sourcelink_suffix = ''
 # If window is narrower than this, input/output prompts are on separate lines:
 #nbsphinx_responsive_width = '700px'
 
+# If True, the intermediate RST files are copied to the HTML output directory:
+#nbsphinx_save_rst = True
+
 # -- The settings below this line are not specific to nbsphinx ------------
 
 master_doc = 'index'
