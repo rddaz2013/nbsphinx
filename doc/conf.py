@@ -44,7 +44,7 @@ html_sourcelink_suffix = ''
 #nbsphinx_responsive_width = '700px'
 
 # If True, the intermediate RST files are copied to the HTML output directory:
-#nbsphinx_save_rst = True
+nbsphinx_save_rst = True
 
 # -- The settings below this line are not specific to nbsphinx ------------
 
