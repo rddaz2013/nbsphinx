@@ -8,6 +8,7 @@
 extensions = [
     'nbsphinx',
     'sphinx.ext.mathjax',
+    'jupyter_alabaster_theme',
 ]
 
 # Exclude build directory and Jupyter backup files:
@@ -53,6 +54,8 @@ copyright = '2017, ' + author
 
 linkcheck_ignore = [r'http://localhost:\d+/']
 
+pygments_style = 'sphinx'
+
 # -- Get version information from Git -------------------------------------
 
 try:
@@ -65,6 +68,7 @@ except Exception:
 # -- Options for HTML output ----------------------------------------------
 
 html_title = project + ' version ' + release
+html_theme = 'jupyter_alabaster_theme'
 
 # -- Options for LaTeX output ---------------------------------------------
 
