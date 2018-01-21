@@ -23,7 +23,7 @@
 http://nbsphinx.rtfd.org/
 
 """
-__version__ = '0.2.18'
+__version__ = '0.3.0'
 
 import copy
 import json
@@ -97,6 +97,7 @@ RST_TEMPLATE = """
 {{ super() }}
 {%- endif -%}
 {% endblock input_group %}
+
 
 {% block input -%}
 .. nbinput:: {% if cell.metadata.magics_language -%}
@@ -689,8 +690,7 @@ class NotebookParser(rst.Parser):
                 f.write(data)
 
         if resources.get('nbsphinx_orphan', False):
-            env.metadata[env.docname]['orphan'] = ''
-
+            rst.Parser.parse(self, ':orphan:', document)
         if env.config.nbsphinx_prolog:
             rst.Parser.parse(
                 self,
@@ -809,7 +809,8 @@ class NbOutput(rst.Directive):
         if outputtype == 'rst':
             classes = [self.options.get('class', ''), 'output_area']
             output_area = docutils.nodes.container(classes=classes)
-            sphinx.util.nodes.nested_parse_with_titles(self.state, self.content, output_area)
+            sphinx.util.nodes.nested_parse_with_titles(
+                self.state, self.content, output_area)
             container += output_area
         else:
             text = '\n'.join(self.content.data)
@@ -906,11 +907,14 @@ def pandoc(source, fmt, to, filter_func=None):
     def decode(data):
         return data.decode('utf-8') if isinstance(data, bytes) else data
 
-    cmd1 = ['pandoc', '--from', fmt, '--to', 'json']
-    cmd2 = ['pandoc', '--from', 'json', '--to', to]
-
     nbconvert.utils.pandoc.check_pandoc_version()
-
+    v = nbconvert.utils.pandoc.get_pandoc_version()
+    cmd = ['pandoc']
+    if nbconvert.utils.version.check_version(v, '2.0'):
+        # see issue #155
+        cmd += ['--eol', 'lf']
+    cmd1 = cmd + ['--from', fmt, '--to', 'json']
+    cmd2 = cmd + ['--from', 'json', '--to', to]
     p = subprocess.Popen(cmd1, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     json_data, _ = p.communicate(encode(source))
 
@@ -1307,6 +1311,9 @@ def depart_code_latex(self, node):
     out = []
     assert lines[0] == ''
     out.append(lines[0])
+    if lines[1].startswith(r'\fvset{'):  # Sphinx >= 1.6.6
+        out.append(lines[1])
+        del lines[1]
     if lines[1].startswith(r'\begin{sphinxVerbatim}'):  # Sphinx >= 1.5
         out.append(lines[1].replace('sphinxVerbatim', 'Verbatim'))
     elif lines[1].startswith(r'\begin{Verbatim}'):  # Sphinx < 1.5
