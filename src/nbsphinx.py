@@ -756,9 +756,9 @@ class NbInput(rst.Directive):
 
         # Input prompt
         # text = 'In [{}]:'.format(execution_count if execution_count else ' ')
-        text = '{}'.format(execution_count if execution_count else ' ')
+        text = ''
         container += CodeNode.create(text, classes=['prompt'])
-        latex_prompt = text + ' '
+        latex_prompt = text + ''
 
         # Input code area
         text = '\n'.join(self.content.data)
@@ -799,9 +799,9 @@ class NbOutput(rst.Directive):
         # Optional output prompt
         if execution_count:
             #text = 'Out[{}]:'.format(execution_count)
-            text = '{}'.format(execution_count)
+            text = ''
             container += CodeNode.create(text, classes=['prompt'])
-            latex_prompt = text + ' '
+            latex_prompt = text + ''
         else:
             # Empty container for HTML:
             container += rst.nodes.container(classes=['prompt', 'empty'])
