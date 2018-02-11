@@ -23,7 +23,7 @@
 http://nbsphinx.rtfd.org/
 
 """
-__version__ = '0.3.0'
+__version__ = '0.3.2'
 
 import copy
 import json
@@ -755,7 +755,8 @@ class NbInput(rst.Directive):
         container = docutils.nodes.container(classes=classes)
 
         # Input prompt
-        text = 'In [{}]:'.format(execution_count if execution_count else ' ')
+        # text = 'In [{}]:'.format(execution_count if execution_count else ' ')
+        text = '{}'.format(execution_count if execution_count else ' ')
         container += CodeNode.create(text, classes=['prompt'])
         latex_prompt = text + ' '
 
@@ -797,7 +798,8 @@ class NbOutput(rst.Directive):
 
         # Optional output prompt
         if execution_count:
-            text = 'Out[{}]:'.format(execution_count)
+            #text = 'Out[{}]:'.format(execution_count)
+            text = '{}'.format(execution_count)
             container += CodeNode.create(text, classes=['prompt'])
             latex_prompt = text + ' '
         else:
