@@ -1,4 +1,4 @@
-# Copyright (c) 2015-2017 Matthias Geier
+# Copyright (c) 2015-2018 Matthias Geier
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,10 +20,10 @@
 
 """Jupyter Notebook Tools for Sphinx.
 
-http://nbsphinx.rtfd.org/
+http://nbsphinx.readthedocs.io/
 
 """
-__version__ = '0.3.2'
+__version__ = '0.3.5'
 
 import copy
 import json
@@ -91,13 +91,6 @@ RST_TEMPLATE = """
 {% endif %}
 {%- endblock any_cell %}
 
-{% block input_group -%}
-{%- if cell.metadata.hide_input -%}
-{%- else -%}
-{{ super() }}
-{%- endif -%}
-{% endblock input_group %}
-
 
 {% block input -%}
 .. nbinput:: {% if cell.metadata.magics_language -%}
@@ -124,6 +117,7 @@ RST_TEMPLATE = """
 {% macro insert_nboutput(datatype, output, cell) -%}
 .. nboutput::
 {%- if datatype == 'text/plain' %}{# nothing #}
+{%- elif datatype == 'ansi' %} ansi
 {%- else %} rst
 {%- endif %}
 {%- if output.output_type == 'execute_result' and cell.execution_count %}
@@ -138,10 +132,20 @@ RST_TEMPLATE = """
 {%- if datatype == 'text/plain' -%}
 {{ insert_empty_lines(output.data[datatype]) }}
 
-{{ output.data[datatype].strip(\n) | indent }}
+{{ output.data[datatype].strip('\n') | indent }}
 {%- elif datatype in ['image/svg+xml', 'image/png', 'image/jpeg', 'application/pdf'] %}
 
     .. image:: {{ output.metadata.filenames[datatype] | posix_path }}
+{%- if datatype in output.metadata %}
+{%- set width = output.metadata[datatype].width %}
+{%- if width %}
+        :width: {{ width }}
+{%- endif %}
+{%- set height = output.metadata[datatype].height %}
+{%- if height %}
+        :height: {{ height }}
+{% endif %}
+{% endif %}
 {%- elif datatype in ['text/markdown'] %}
 
 {{ output.data['text/markdown'] | markdown2rst | indent }}
@@ -152,6 +156,7 @@ RST_TEMPLATE = """
 
 {{ output.data['text/latex'] | indent | indent }}
 {%- elif datatype == 'text/html' %}
+    :class: rendered_html
 
     .. raw:: html
 
@@ -183,9 +188,18 @@ RST_TEMPLATE = """
     .. raw:: latex
 
         %
-        \\begin{OriginalVerbatim}[commandchars=\\\\\\{\\}]
+        {
+        \\kern-\\sphinxverbatimsmallskipamount\\kern-\\baselineskip
+        \\kern+\\FrameHeightAdjust\\kern-\\fboxrule
+        \\vspace{\\nbsphinxcodecellspacing}
+        \\sphinxsetup{VerbatimBorderColor={named}{nbsphinx-code-border}}
+    {%- if output.name == 'stderr' %}
+        \\sphinxsetup{VerbatimColor={named}{nbsphinx-stderr}}
+    {%- endif %}
+        \\begin{sphinxVerbatim}[commandchars=\\\\\\{\\}]
 {{ output.data[datatype] | escape_latex | ansi2latex | indent | indent }}
-        \\end{OriginalVerbatim}
+        \\end{sphinxVerbatim}
+        }
         % The following \\relax is needed to avoid problems with adjacent ANSI
         % cells and some other stuff (e.g. bullet lists) following ANSI cells.
         % See https://github.com/sphinx-doc/sphinx/issues/3594
@@ -201,14 +215,14 @@ RST_TEMPLATE = """
 {%- set html_datatype, latex_datatype = output | get_output_type %}
 {%- if html_datatype == latex_datatype %}
 {{ insert_nboutput(html_datatype, output, cell) }}
-{%- else %}
+{% else %}
 .. only:: html
 
 {{ insert_nboutput(html_datatype, output, cell) | indent }}
 .. only:: latex
 
 {{ insert_nboutput(latex_datatype, output, cell) | indent }}
-{%- endif %}
+{% endif %}
 {% endblock nboutput %}
 
 
@@ -222,7 +236,7 @@ RST_TEMPLATE = """
 {%- if 'nbsphinx-toctree' in cell.metadata %}
 {{ cell | extract_toctree }}
 {%- else %}
-{{ super() }}
+{{ cell | save_attachments or super() | replace_attachments }}
 {% endif %}
 {% endblock markdowncell %}
 
@@ -246,8 +260,10 @@ RST_TEMPLATE = """
 
 {{ cell.source | indent }}
 {%- elif raw_mimetype == 'text/markdown' %}
+..{# Empty comment to make sure the preceding directive (if any) is closed #}
 {{ cell.source | markdown2rst }}
 {%- elif raw_mimetype == 'text/restructuredtext' %}
+..{# Empty comment to make sure the preceding directive (if any) is closed #}
 {{ cell.source }}
 {% endif %}
 {% endblock rawcell %}
@@ -269,9 +285,12 @@ RST_TEMPLATE = """
 
 
 LATEX_PREAMBLE = r"""
-% Jupyter Notebook prompt colors
-\definecolor{nbsphinxin}{HTML}{303F9F}
-\definecolor{nbsphinxout}{HTML}{D84315}
+% Jupyter Notebook code cell colors
+\definecolor{nbsphinxin}{HTML}{307FC1}
+\definecolor{nbsphinxout}{HTML}{BF5B3D}
+\definecolor{nbsphinx-code-bg}{HTML}{F5F5F5}
+\definecolor{nbsphinx-code-border}{HTML}{E0E0E0}
+\definecolor{nbsphinx-stderr}{HTML}{FFDDDD}
 % ANSI colors for output streams and traceback highlighting
 \definecolor{ansi-black}{HTML}{3E424D}
 \definecolor{ansi-black-intense}{HTML}{282C36}
@@ -299,6 +318,77 @@ LATEX_PREAMBLE = r"""
 \@ifundefined{notice}{%
 \newenvironment{notice}{\begin{sphinxadmonition}}{\end{sphinxadmonition}}%
 }{}
+\makeatother
+
+% Define an environment for non-plain-text code cell outputs (e.g. images)
+\makeatletter
+\newenvironment{nbsphinxfancyoutput}{%
+\def\nbsphinxfcolorbox{\spx@fcolorbox{nbsphinx-code-border}{white}}%
+\def\FrameCommand{\nbsphinxfcolorbox\nbsphinxfancyaddprompt\@empty}%
+\def\FirstFrameCommand{\nbsphinxfcolorbox\nbsphinxfancyaddprompt\sphinxVerbatim@Continues}%
+\def\MidFrameCommand{\nbsphinxfcolorbox\sphinxVerbatim@Continued\sphinxVerbatim@Continues}%
+\def\LastFrameCommand{\nbsphinxfcolorbox\sphinxVerbatim@Continued\@empty}%
+\MakeFramed{\advance\hsize-\width\@totalleftmargin\z@\linewidth\hsize\@setminipage}%
+}{\par\unskip\@minipagefalse\endMakeFramed}
+\makeatother
+\newbox\nbsphinxpromptbox
+\def\nbsphinxfancyaddprompt{\ifvoid\nbsphinxpromptbox\else
+    \kern\fboxrule\kern\fboxsep
+    \copy\nbsphinxpromptbox
+    \kern-\ht\nbsphinxpromptbox\kern-\dp\nbsphinxpromptbox
+    \kern-\fboxsep\kern-\fboxrule\nointerlineskip
+    \fi}
+\newlength\nbsphinxcodecellspacing
+\setlength{\nbsphinxcodecellspacing}{0pt}
+
+% Define support macros for attaching opening and closing lines to notebooks
+\newsavebox\nbsphinxbox
+\makeatletter
+\newcommand{\nbsphinxstartnotebook}[1]{%
+    \par
+    % measure needed space
+    \setbox\nbsphinxbox\vtop{{#1\par}}
+    % reserve some space at bottom of page, else start new page
+    \needspace{\dimexpr2.5\baselineskip+\ht\nbsphinxbox+\dp\nbsphinxbox}
+    % mimick vertical spacing from \section command
+      \addpenalty\@secpenalty
+      \@tempskipa 3.5ex \@plus 1ex \@minus .2ex\relax
+      \addvspace\@tempskipa
+      {\Large\@tempskipa\baselineskip
+             \advance\@tempskipa-\prevdepth
+             \advance\@tempskipa-\ht\nbsphinxbox
+             \ifdim\@tempskipa>\z@
+               \vskip \@tempskipa
+             \fi}
+    \unvbox\nbsphinxbox
+    % if notebook starts with a \section, prevent it from adding extra space
+    \@nobreaktrue\everypar{\@nobreakfalse\everypar{}}%
+    % compensate the parskip which will get inserted by next paragraph
+    \nobreak\vskip-\parskip
+    % do not break here
+    \nobreak
+}% end of \nbsphinxstartnotebook
+
+\newcommand{\nbsphinxstopnotebook}[1]{%
+    \par
+    % measure needed space
+    \setbox\nbsphinxbox\vbox{{#1\par}}
+    \nobreak % it updates page totals
+    \dimen@\pagegoal
+    \advance\dimen@-\pagetotal \advance\dimen@-\pagedepth
+    \advance\dimen@-\ht\nbsphinxbox \advance\dimen@-\dp\nbsphinxbox
+    \ifdim\dimen@<\z@
+      % little space left
+      \unvbox\nbsphinxbox
+      \kern-.8\baselineskip
+      \nobreak\vskip\z@\@plus1fil
+      \penalty100
+      \vskip\z@\@plus-1fil
+      \kern.8\baselineskip
+    \else
+      \unvbox\nbsphinxbox
+    \fi
+}% end of \nbsphinxstopnotebook
 \makeatother
 """
 
@@ -357,12 +447,12 @@ div.nblast {
 
 /* input prompt */
 div.nbinput div.prompt pre {
-    color: #303F9F;
+    color: #307FC1;
 }
 
 /* output prompt */
 div.nboutput div.prompt pre {
-    color: #D84315;
+    color: #BF5B3D;
 }
 
 /* all prompts */
@@ -408,9 +498,9 @@ div.nboutput div.output_area {
 
 /* input area */
 div.nbinput div.input_area {
-    border: 1px solid #cfcfcf;
+    border: 1px solid #e0e0e0;
     border-radius: 2px;
-    background: #f7f7f7;
+    background: #f5f5f5;
 }
 
 /* override MathJax center alignment in output cells */
@@ -467,6 +557,40 @@ div.nboutput div.output_area.stderr {
 
 .ansi-bold { font-weight: bold; }
 .ansi-underline { text-decoration: underline; }
+
+/* Some additional styling taken form the Jupyter notebook CSS */
+div.rendered_html table {
+  border: none;
+  border-collapse: collapse;
+  border-spacing: 0;
+  color: black;
+  font-size: 12px;
+  table-layout: fixed;
+}
+div.rendered_html thead {
+  border-bottom: 1px solid black;
+  vertical-align: bottom;
+}
+div.rendered_html tr,
+div.rendered_html th,
+div.rendered_html td {
+  text-align: right;
+  vertical-align: middle;
+  padding: 0.5em 0.5em;
+  line-height: normal;
+  white-space: normal;
+  max-width: none;
+  border: none;
+}
+div.rendered_html th {
+  font-weight: bold;
+}
+div.rendered_html tbody tr:nth-child(odd) {
+  background: #f5f5f5;
+}
+div.rendered_html tbody tr:hover {
+  background: rgba(66, 165, 245, 0.2);
+}
 """
 
 CSS_STRING_READTHEDOCS = """
@@ -483,21 +607,6 @@ CSS_STRING_READTHEDOCS = """
     margin-top: -19px;
 }
 
-/* nice headers on first paragraph of info/warning boxes */
-.admonition .first {
-    margin: -12px;
-    padding: 6px 12px;
-    margin-bottom: 12px;
-    color: #fff;
-    line-height: 1;
-    display: block;
-}
-.admonition.warning .first {
-    background: #f0b37e;
-}
-.admonition.note .first {
-    background: #6ab0de;
-}
 .admonition > p:before {
     margin-right: 4px;  /* make room for the exclamation icon */
 }
@@ -508,7 +617,7 @@ CSS_STRING_CLOUD = """
 
 /* nicer titles and more space for info and warning logos */
 
-div.admonition > .first {
+div.admonition p.admonition-title {
     background: rgba(0, 0, 0, .05);
     margin: .5em -1em;
     margin-top: -.5em !important;
@@ -544,6 +653,31 @@ class Exporter(nbconvert.RSTExporter):
     def __init__(self, execute='auto', kernel_name='', execute_arguments=[],
                  allow_errors=False, timeout=30, codecell_lexer='none'):
         """Initialize the Exporter."""
+
+        # NB: The following stateful Jinja filters are a hack until
+        # template-based processing is dropped
+        # (https://github.com/spatialaudio/nbsphinx/issues/36) or someone
+        # comes up with a better idea.
+
+        # NB: This instance-local state makes the methods non-reentrant!
+        attachment_storage = []
+
+        def save_attachments(cell):
+            for filename, bundle in cell.get('attachments', {}).items():
+                attachment_storage.append((filename, bundle))
+
+        def replace_attachments(text):
+            for filename, bundle in attachment_storage:
+                # For now, this works only if there is a single MIME bundle
+                (mime_type, data), = bundle.items()
+                text = re.sub(
+                    r'^(\s*\.\. (\|[^|]*\| image|figure)::) attachment:{0}$'
+                        .format(filename),
+                    r'\1 data:{0};base64,{1}'.format(mime_type, data),
+                    text, flags=re.MULTILINE)
+            attachment_storage.clear()
+            return text
+
         self._execute = execute
         self._kernel_name = kernel_name
         self._execute_arguments = execute_arguments
@@ -553,13 +687,18 @@ class Exporter(nbconvert.RSTExporter):
         loader = jinja2.DictLoader({'nbsphinx-rst.tpl': RST_TEMPLATE})
         super(Exporter, self).__init__(
             template_file='nbsphinx-rst.tpl', extra_loaders=[loader],
-            config=traitlets.config.Config(
-                {'HighlightMagicsPreprocessor': {'enabled': True}}),
+            config=traitlets.config.Config({
+                'HighlightMagicsPreprocessor': {'enabled': True},
+                # Work around https://github.com/jupyter/nbconvert/issues/720:
+                'RegexRemovePreprocessor': {'enabled': False},
+            }),
             filters={
                 'convert_pandoc': convert_pandoc,
                 'markdown2rst': markdown2rst,
                 'get_empty_lines': _get_empty_lines,
                 'extract_toctree': _extract_toctree,
+                'save_attachments': save_attachments,
+                'replace_attachments': replace_attachments,
                 'get_output_type': _get_output_type,
                 'json_dumps': json.dumps,
             })
@@ -618,12 +757,16 @@ class NotebookParser(rst.Parser):
 
     """
 
-    supported = ()
+    supported = 'jupyter_notebook',
 
     def get_transforms(self):
         """List of transforms for documents parsed by this parser."""
         return rst.Parser.get_transforms(self) + [
-            ProcessLocalLinks, ReplaceAlertDivs]
+            CreateNotebookSectionAnchors,
+            ReplaceAlertDivs,
+            CopyLinkedFiles,
+            GetSizeFromImages,
+        ]
 
     def parse(self, inputstring, document):
         """Parse *inputstring*, write results to *document*.
@@ -640,14 +783,29 @@ class NotebookParser(rst.Parser):
         that, the translated strings will most likely be parsed as
         CommonMark.
 
+        If the configuration value "nbsphinx_custom_formats" is
+        specified, the input string is converted to the Jupyter notebook
+        format with the given conversion function.
+
         """
+        env = document.settings.env
+        formats = env.config.nbsphinx_custom_formats
+        formats.setdefault(
+            '.ipynb', lambda s: nbformat.reads(s, as_version=_ipynbversion))
+        suffix = os.path.splitext(env.doc2path(env.docname))[1]
         try:
-            nb = nbformat.reads(inputstring, as_version=_ipynbversion)
+            converter = formats[suffix]
+        except KeyError:
+            raise NotebookError('No converter for suffix {!r}'.format(suffix))
+        if isinstance(converter, str):
+            converter = sphinx.util.import_object(converter)
+        try:
+            nb = converter(inputstring)
         except Exception:
             # NB: The use of the RST parser is temporary!
             rst.Parser.parse(self, inputstring, document)
             return
-        env = document.settings.env
+
         srcdir = os.path.dirname(env.doc2path(env.docname))
         auxdir = os.path.join(env.doctreedir, 'nbsphinx')
         sphinx.util.ensuredir(auxdir)
@@ -692,16 +850,14 @@ class NotebookParser(rst.Parser):
         if resources.get('nbsphinx_orphan', False):
             rst.Parser.parse(self, ':orphan:', document)
         if env.config.nbsphinx_prolog:
-            rst.Parser.parse(
-                self,
-                jinja2.Template(env.config.nbsphinx_prolog).render(env=env),
-                document)
+            prolog = exporter.environment.from_string(
+                env.config.nbsphinx_prolog).render(env=env)
+            rst.Parser.parse(self, prolog, document)
         rst.Parser.parse(self, rststring, document)
         if env.config.nbsphinx_epilog:
-            rst.Parser.parse(
-                self,
-                jinja2.Template(env.config.nbsphinx_epilog).render(env=env),
-                document)
+            epilog = exporter.environment.from_string(
+                env.config.nbsphinx_epilog).render(env=env)
+            rst.Parser.parse(self, epilog, document)
 
 
 class NotebookError(sphinx.errors.SphinxError):
@@ -710,20 +866,76 @@ class NotebookError(sphinx.errors.SphinxError):
     category = 'Notebook error'
 
 
-class CodeNode(docutils.nodes.Element):
-    """A custom node that contains a literal_block node."""
+class CodeAreaNode(docutils.nodes.Element):
+    """Input area or output area of a Jupyter notebook code cell."""
 
-    @classmethod
-    def create(cls, text, language='none', **kwargs):
-        """Create a new CodeNode containing a literal_block node.
 
-        Apparently, this cannot be done in CodeNode.__init__(), see:
-        https://groups.google.com/forum/#!topic/sphinx-dev/0chv7BsYuW0
+class FancyOutputNode(docutils.nodes.Element):
+    """A custom node for non-code output of code cells."""
 
-        """
-        node = docutils.nodes.literal_block(text, text, language=language,
-                                            **kwargs)
-        return cls(text, node)
+
+def _create_code_nodes(directive):
+    """Create nodes for an input or output code cell."""
+    fancy_output = False
+    language = 'none'
+    execution_count = directive.options.get('execution-count')
+    config = directive.state.document.settings.env.config
+    if isinstance(directive, NbInput):
+        outer_classes = ['nbinput']
+        if 'no-output' in directive.options:
+            outer_classes.append('nblast')
+        inner_classes = ['input_area']
+        if directive.arguments:
+            language = directive.arguments[0]
+        prompt_template = config.nbsphinx_input_prompt
+        if not execution_count:
+            execution_count = ' '
+    elif isinstance(directive, NbOutput):
+        outer_classes = ['nboutput']
+        if 'more-to-come' not in directive.options:
+            outer_classes.append('nblast')
+        inner_classes = ['output_area']
+        # 'class' can be 'stderr'
+        inner_classes.append(directive.options.get('class', ''))
+        prompt_template = config.nbsphinx_output_prompt
+        if directive.arguments and directive.arguments[0] in ['rst', 'ansi']:
+            fancy_output = True
+    else:
+        assert False
+
+    outer_node = docutils.nodes.container(classes=outer_classes)
+    if execution_count:
+        prompt = prompt_template % (execution_count,)
+        prompt_node = docutils.nodes.literal_block(
+            prompt, prompt, language='none', classes=['prompt'])
+    else:
+        prompt = ''
+        prompt_node = docutils.nodes.container(classes=['prompt', 'empty'])
+    # NB: Prompts are added manually in LaTeX output
+    outer_node += sphinx.addnodes.only('', prompt_node, expr='html')
+
+    if fancy_output:
+        inner_node = docutils.nodes.container(classes=inner_classes)
+        sphinx.util.nodes.nested_parse_with_titles(
+            directive.state, directive.content, inner_node)
+        if directive.arguments[0] == 'rst':
+            outer_node += FancyOutputNode('', inner_node, prompt=prompt)
+        elif directive.arguments[0] == 'ansi':
+            outer_node += inner_node
+        else:
+            assert False
+    else:
+        text = '\n'.join(directive.content.data)
+        inner_node = docutils.nodes.literal_block(
+            text, text, language=language, classes=inner_classes)
+        codearea_node = CodeAreaNode('', inner_node, prompt=prompt)
+        # See http://stackoverflow.com/q/34050044/.
+        for attr in 'empty-lines-before', 'empty-lines-after':
+            value = directive.options.get(attr, 0)
+            if value:
+                codearea_node[attr] = value
+        outer_node += codearea_node
+    return [outer_node]
 
 
 class AdmonitionNode(docutils.nodes.Element):
@@ -748,28 +960,8 @@ class NbInput(rst.Directive):
 
     def run(self):
         """This is called by the reST parser."""
-        execution_count = self.options.get('execution-count')
-        classes = ['nbinput']
-        if 'no-output' in self.options:
-            classes.append('nblast')
-        container = docutils.nodes.container(classes=classes)
-
-        # Input prompt
-        # text = 'In [{}]:'.format(execution_count if execution_count else ' ')
-        text = ''
-        container += CodeNode.create(text, classes=['prompt'])
-        latex_prompt = text + ''
-
-        # Input code area
-        text = '\n'.join(self.content.data)
-        node = CodeNode.create(
-            text, language=self.arguments[0] if self.arguments else 'none',
-            classes=['input_area'])
-        _set_empty_lines(node, self.options)
-        node.attributes['latex_prompt'] = latex_prompt
-        container += node
         self.state.document['nbsphinx_include_css'] = True
-        return [container]
+        return _create_code_nodes(self)
 
 
 class NbOutput(rst.Directive):
@@ -789,39 +981,8 @@ class NbOutput(rst.Directive):
 
     def run(self):
         """This is called by the reST parser."""
-        outputtype = self.arguments[0] if self.arguments else ''
-        execution_count = self.options.get('execution-count')
-        classes = ['nboutput']
-        if 'more-to-come' not in self.options:
-            classes.append('nblast')
-        container = docutils.nodes.container(classes=classes)
-
-        # Optional output prompt
-        if execution_count:
-            #text = 'Out[{}]:'.format(execution_count)
-            text = ''
-            container += CodeNode.create(text, classes=['prompt'])
-            latex_prompt = text + ''
-        else:
-            # Empty container for HTML:
-            container += rst.nodes.container(classes=['prompt', 'empty'])
-            latex_prompt = ''
-
-        # Output area
-        if outputtype == 'rst':
-            classes = [self.options.get('class', ''), 'output_area']
-            output_area = docutils.nodes.container(classes=classes)
-            sphinx.util.nodes.nested_parse_with_titles(
-                self.state, self.content, output_area)
-            container += output_area
-        else:
-            text = '\n'.join(self.content.data)
-            node = CodeNode.create(text, classes=['output_area'])
-            _set_empty_lines(node, self.options)
-            node.attributes['latex_prompt'] = latex_prompt
-            container += node
         self.state.document['nbsphinx_include_css'] = True
-        return [container]
+        return _create_code_nodes(self)
 
 
 class _NbAdmonition(rst.Directive):
@@ -870,26 +1031,42 @@ def markdown2rst(text):
     except that it uses a pandoc filter to convert raw LaTeX blocks to
     "math" directives (instead of "raw:: latex" directives).
 
+    NB: At some point, pandoc changed its behavior!  In former times,
+    it converted LaTeX math environments to RawBlock ("latex"), at some
+    later point this was changed to RawInline ("tex").
+    Either way, we convert it to Math/DisplayMath.
+
     """
+
+    def displaymath(text):
+        return {
+            't': 'Math',
+            'c': [
+                {'t': 'DisplayMath', 'c': []},
+                # Special marker characters are removed below:
+                '\x0e:nowrap:\x0f\n\n' + text,
+            ]
+        }
 
     def rawlatex2math_hook(obj):
         if obj.get('t') == 'RawBlock' and obj['c'][0] == 'latex':
             obj['t'] = 'Para'
-            obj['c'] = [{
-                't': 'Math',
-                'c': [
-                    {'t': 'DisplayMath', 'c': []},
-                    # Special marker characters are removed below:
-                    '\x0e:nowrap:\x0f\n\n' + obj['c'][1],
-                ]
-            }]
+            obj['c'] = [displaymath(obj['c'][1])]
+        elif obj.get('t') == 'RawInline' and obj['c'][0] == 'tex':
+            obj = displaymath(obj['c'][1])
         return obj
 
     def rawlatex2math(text):
         json_data = json.loads(text, object_hook=rawlatex2math_hook)
         return json.dumps(json_data)
 
-    rststring = pandoc(text, 'markdown', 'rst', filter_func=rawlatex2math)
+    input_format = 'markdown'
+    input_format += '-implicit_figures'
+    v = nbconvert.utils.pandoc.get_pandoc_version()
+    if nbconvert.utils.version.check_version(v, '1.13'):
+        input_format += '-native_divs+raw_html'
+
+    rststring = pandoc(text, input_format, 'rst', filter_func=rawlatex2math)
     return re.sub(r'^\n( *)\x0e:nowrap:\x0f$',
                   r'\1:nowrap:',
                   rststring,
@@ -917,6 +1094,7 @@ def pandoc(source, fmt, to, filter_func=None):
         cmd += ['--eol', 'lf']
     cmd1 = cmd + ['--from', fmt, '--to', 'json']
     cmd2 = cmd + ['--from', 'json', '--to', to]
+
     p = subprocess.Popen(cmd1, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     json_data, _ = p.communicate(encode(source))
 
@@ -997,28 +1175,53 @@ def _get_output_type(output):
     return html_datatype, latex_datatype
 
 
-def _set_empty_lines(node, options):
-    """Set "empty lines" attributes on a CodeNode.
+def _local_file_from_reference(node, document):
+    """Get local file path from reference and split it into components."""
+    # NB: Anonymous hyperlinks must be already resolved at this point!
+    refuri = node.get('refuri')
+    if not refuri:
+        refname = node.get('refname')
+        if refname:
+            refid = document.nameids.get(refname)
+        else:
+            # NB: This can happen for anonymous hyperlinks
+            refid = node.get('refid')
+        target = document.ids.get(refid)
+        if not target:
+            # No corresponding target, Sphinx may warn later
+            return '', '', ''
+        refuri = target.get('refuri')
+        if not refuri:
+            # Target doesn't have URI
+            return '', '', ''
+    if '://' in refuri:
+        # Not a local link
+        return '', '', ''
+    elif refuri.startswith('#') or refuri.startswith('mailto:'):
+        # Not a local link
+        return '', '', ''
 
-    See http://stackoverflow.com/q/34050044/500098.
+    # NB: We look for "fragment identifier" before unquoting
+    match = re.match(r'^([^#]+)(\.[^#]+)(#.+)$', refuri)
+    if match:
+        base = unquote(match.group(1))
+        # NB: The suffix and "fragment identifier" are not unquoted
+        suffix = match.group(2)
+        fragment = match.group(3)
+    else:
+        base, suffix = os.path.splitext(refuri)
+        base = unquote(base)
+        fragment = ''
+    return base, suffix, fragment
 
-    """
-    for attr in 'empty-lines-before', 'empty-lines-after':
-        value = options.get(attr, 0)
-        if value:
-            node.attributes[attr] = value
 
-
-class ProcessLocalLinks(docutils.transforms.Transform):
-    """Process links to local files.
-
-    Marks local files to be copied to the HTML output directory and
-    turns links to local notebooks into ``:doc:``/``:ref:`` links.
+class RewriteLocalLinks(docutils.transforms.Transform):
+    """Turn links to source files into ``:doc:``/``:ref:`` links.
 
     Links to subsections are possible with ``...#Subsection-Title``.
     These links use the labels created by CreateSectionLabels.
 
-    Links to subsections use ``:ref:``, links to whole notebooks use
+    Links to subsections use ``:ref:``, links to whole source files use
     ``:doc:``.  Latter can be useful if you have an ``index.rst`` but
     also want a distinct ``index.ipynb`` for use with Jupyter.
     In this case you can use such a link in a notebook::
@@ -1031,80 +1234,71 @@ class ProcessLocalLinks(docutils.transforms.Transform):
 
     """
 
-    default_priority = 400  # Should probably be adjusted?
-
-    _subsection_re = re.compile(r'^(.+)(\..+#.+)$')
+    default_priority = 500  # After AnonymousHyperlinks (440)
 
     def apply(self):
         env = self.document.settings.env
         for node in self.document.traverse(docutils.nodes.reference):
-            uri = node.get('refuri', '')
-            if not uri:
-                continue  # No URI (e.g. named reference)
-            elif '://' in uri:
-                continue  # Not a local link
-            elif uri.startswith('#') or uri.startswith('mailto:'):
-                continue  # Nothing to be done
+            base, suffix, fragment = _local_file_from_reference(node,
+                                                                self.document)
+            if not base:
+                continue
 
-            unquoted_uri = unquote(uri)
-            for suffix in env.config.source_suffix:
-                if unquoted_uri.lower().endswith(suffix.lower()):
-                    target = unquoted_uri[:-len(suffix)]
+            for s in env.config.source_suffix:
+                if suffix.lower() == s.lower():
+                    target = base
+                    if fragment:
+                        target_ext = suffix + fragment
+                        reftype = 'ref'
+                        refdomain = 'std'
+                    else:
+                        target_ext = ''
+                        reftype = 'doc'
+                        if hasattr(sphinx.util, 'status_iterator'):
+                            # Sphinx >= 1.6
+                            refdomain = 'std'
+                        else:
+                            refdomain = None
                     break
             else:
-                target = ''
+                continue  # Not a link to a potential Sphinx source file
 
-            subsection_matches = self._subsection_re.match(uri)
-            if target:
-                target_ext = ''
-                reftype = 'doc'
-                refdomain = None
-            elif subsection_matches:
-                target = subsection_matches.group(1)
-                target_ext = subsection_matches.group(2)
-                reftype = 'ref'
-                refdomain = 'std'
-            else:
-                file = os.path.normpath(
-                    os.path.join(os.path.dirname(env.docname), unquoted_uri))
-                if not os.path.isfile(os.path.join(env.srcdir, file)):
-                    env.app.warn('file not found: {!r}'.format(file),
-                                 env.doc2path(env.docname))
-                    continue  # Link is ignored
-                elif file.startswith('..'):
-                    env.app.warn(
-                        'link outside of source directory: {!r}'.format(file),
-                        env.doc2path(env.docname))
-                    continue  # Link is ignored
-                if not hasattr(env, 'nbsphinx_files'):
-                    env.nbsphinx_files = {}
-                env.nbsphinx_files.setdefault(env.docname, []).append(file)
-                continue  # We're done here
-
-            target_docname = os.path.normpath(
-                os.path.join(os.path.dirname(env.docname), target))
+            target_docname = nbconvert.filters.posix_path(os.path.normpath(
+                os.path.join(os.path.dirname(env.docname), target)))
             if target_docname in env.found_docs:
-                if target_ext:
-                    target = target_docname + target_ext
-                    target = target.lower()
-                target = '/' + target
+                reftarget = '/' + target_docname + target_ext
+                if reftype == 'ref':
+                    reftarget = reftarget.lower()
                 linktext = node.astext()
                 xref = sphinx.addnodes.pending_xref(
-                    reftype=reftype, reftarget=target, refdomain=refdomain,
+                    reftype=reftype, reftarget=reftarget, refdomain=refdomain,
                     refwarn=True, refexplicit=True, refdoc=env.docname)
                 xref += docutils.nodes.Text(linktext, linktext)
                 node.replace_self(xref)
 
 
-class CreateSectionLabels(docutils.transforms.Transform):
-    """Make labels for each document parsed by Sphinx, each section thereof,
-    and each Sphinx domain object.
-
-    These labels are referenced in ProcessLocalLinks.
+class CreateNotebookSectionAnchors(docutils.transforms.Transform):
+    """Create section anchors for Jupyter notebooks.
 
     Note: Sphinx lower-cases the HTML section IDs, Jupyter doesn't.
-    This transform creates labels in the Jupyter style for Jupyter
-    notebooks, but keeps the Sphinx style for all other source files.
+    This transform creates anchors in the Jupyter style.
+
+    """
+
+    default_priority = 200  # Before CreateSectionLabels (250)
+
+    def apply(self):
+        for section in self.document.traverse(docutils.nodes.section):
+            title = section.children[0].astext()
+            link_id = title.replace(' ', '-')
+            section['ids'] = [link_id]
+
+
+class CreateSectionLabels(docutils.transforms.Transform):
+    """Make labels for each document and each section thereof.
+
+    These labels are referenced in RewriteLocalLinks but can also be
+    used manually with ``:ref:``.
 
     """
 
@@ -1118,11 +1312,7 @@ class CreateSectionLabels(docutils.transforms.Transform):
             assert section.children
             assert isinstance(section.children[0], docutils.nodes.title)
             title = section.children[0].astext()
-            if file_ext.lower() == '.ipynb':
-                link_id = title.replace(' ', '-')
-                section['ids'] = [link_id]
-            else:
-                link_id = section['ids'][0]
+            link_id = section['ids'][0]
             label = '/' + env.docname + file_ext + '#' + link_id
             label = label.lower()
             env.domaindata['std']['labels'][label] = (
@@ -1139,7 +1329,15 @@ class CreateSectionLabels(docutils.transforms.Transform):
                     env.docname, '')
                 i_still_have_to_create_the_document_label = False
 
-        # Create labels for domain-specific object signatures
+
+class CreateDomainObjectLabels(docutils.transforms.Transform):
+    """Create labels for domain-specific object signatures."""
+
+    default_priority = 250  # About the same as CreateSectionLabels
+
+    def apply(self):
+        env = self.document.settings.env
+        file_ext = os.path.splitext(env.doc2path(env.docname))[1]
         for sig in self.document.traverse(sphinx.addnodes.desc_signature):
             try:
                 title = sig['ids'][0]
@@ -1210,6 +1408,52 @@ class ReplaceAlertDivs(docutils.transforms.Transform):
                     content.append(sibling)
 
 
+class CopyLinkedFiles(docutils.transforms.Transform):
+    """Mark linked (local) files to be copied to the HTML output."""
+
+    default_priority = 600  # After RewriteLocalLinks
+
+    def apply(self):
+        env = self.document.settings.env
+        for node in self.document.traverse(docutils.nodes.reference):
+            base, suffix, fragment = _local_file_from_reference(node,
+                                                                self.document)
+            if not base:
+                continue  # Not a local link
+            relpath = base + suffix + fragment
+            file = os.path.normpath(
+                os.path.join(os.path.dirname(env.docname), relpath))
+            if not os.path.isfile(os.path.join(env.srcdir, file)):
+                env.app.warn('file not found: {!r}'.format(file),
+                             env.doc2path(env.docname))
+                continue  # Link is ignored
+            elif file.startswith('..'):
+                env.app.warn(
+                    'link outside of source directory: {!r}'.format(file),
+                    env.doc2path(env.docname))
+                continue  # Link is ignored
+            if not hasattr(env, 'nbsphinx_files'):
+                env.nbsphinx_files = {}
+            env.nbsphinx_files.setdefault(env.docname, []).append(file)
+
+
+class GetSizeFromImages(docutils.transforms.Transform):
+    """Get size from images and store it as node attributes."""
+
+    default_priority = 500  # Doesn't really matter?
+
+    def apply(self):
+        env = self.document.settings.env
+        for node in self.document.traverse(docutils.nodes.image):
+            if 'width' not in node and 'height' not in node:
+                uri = node['uri']
+                srcdir = os.path.dirname(env.doc2path(env.docname))
+                size = sphinx.util.images.get_image_size(
+                        os.path.join(srcdir, uri))
+                if size is not None:
+                    node['width'], node['height'] = map(str, size)
+
+
 def builder_inited(app):
     # Add LaTeX definitions to preamble
     latex_elements = app.builder.config.latex_elements
@@ -1221,21 +1465,24 @@ def builder_inited(app):
     # Set default value for CSS prompt width
     if app.config.nbsphinx_prompt_width is None:
         app.config.nbsphinx_prompt_width = {
-            'agogo': '7ex',
-            'alabaster': '8ex',
-            'better': '8ex',
-            'classic': '7ex',
-            'cloud': '8ex',
-            'dotted': '8ex',
-            'haiku': '7ex',
-            'julia': '7ex',
-            'nature': '8ex',
-            'pyramid': '8ex',
-            'redcloud': '8ex',
-            'sphinx_py3doc_enhanced_theme': '8ex',
-            'sphinx_rtd_theme': '8ex',
-            'traditional': '6ex',
-        }.get(app.config.html_theme, '9ex')
+            'agogo': '4ex',
+            'alabaster': '5ex',
+            'better': '5ex',
+            'classic': '4ex',
+            'cloud': '5ex',
+            'dotted': '5ex',
+            'haiku': '4ex',
+            'julia': '5ex',
+            'nature': '5ex',
+            'pyramid': '5ex',
+            'redcloud': '5ex',
+            'sphinx_py3doc_enhanced_theme': '6ex',
+            'sphinx_rtd_theme': '5ex',
+            'traditional': '4ex',
+        }.get(app.config.html_theme, '7ex')
+
+    for suffix in app.config.nbsphinx_custom_formats:
+        app.add_source_suffix(suffix, 'jupyter_notebook')
 
 
 def html_page_context(app, pagename, templatename, context, doctree):
@@ -1279,7 +1526,7 @@ def env_purge_doc(app, env, docname):
         pass
 
 
-def depart_code_html(self, node):
+def depart_codearea_html(self, node):
     """Add empty lines before and after the code."""
     text = self.body[-1]
     text = text.replace('<pre>',
@@ -1289,71 +1536,94 @@ def depart_code_html(self, node):
     self.body[-1] = text
 
 
-def visit_code_latex(self, node):
-    """Avoid creating a separate prompt node.
-
-    The prompt (which is stored in the "latex_prompt" attribute) will be
-    pre-pended in the main code node.
-
-    """
-    if 'latex_prompt' not in node.attributes:
-        raise docutils.nodes.SkipNode()
+def visit_codearea_latex(self, node):
     self.pushbody([])  # See popbody() below
 
 
-def depart_code_latex(self, node):
+def depart_codearea_latex(self, node):
     """Some changes to code blocks.
 
-    * Remove the frame (by changing Verbatim -> OriginalVerbatim)
+    * Change frame color and background color
     * Add empty lines before and after the code
-    * Add prompt to the first line, empty space to the following lines
+    * Add prompt
 
     """
-    lines = ''.join(self.popbody()).split('\n')
     out = []
+    lines = ''.join(self.popbody()).split('\n')
     assert lines[0] == ''
     out.append(lines[0])
+    out.append('{')  # Start a scope for colors
+    prompt = node['prompt']
+    if 'nbinput' in node.parent['classes']:
+        promptcolor = 'nbsphinxin'
+        out.append(r'\sphinxsetup{VerbatimColor={named}{nbsphinx-code-bg}}')
+    else:
+        out.append(r"""
+\kern-\sphinxverbatimsmallskipamount\kern-\baselineskip
+\kern+\FrameHeightAdjust\kern-\fboxrule
+\vspace{\nbsphinxcodecellspacing}
+""")
+        promptcolor = 'nbsphinxout'
+
+    out.append(
+        r'\sphinxsetup{VerbatimBorderColor={named}{nbsphinx-code-border}}')
     if lines[1].startswith(r'\fvset{'):  # Sphinx >= 1.6.6
         out.append(lines[1])
         del lines[1]
-    if lines[1].startswith(r'\begin{sphinxVerbatim}'):  # Sphinx >= 1.5
-        out.append(lines[1].replace('sphinxVerbatim', 'Verbatim'))
-    elif lines[1].startswith(r'\begin{Verbatim}'):  # Sphinx < 1.5
-        out.append(lines[1].replace('Verbatim', 'OriginalVerbatim'))
-    else:
-        assert False
+    assert 'Verbatim' in lines[1]
+    out.append(lines[1])
     code_lines = (
         [''] * node.get('empty-lines-before', 0) +
         lines[2:-2] +
         [''] * node.get('empty-lines-after', 0)
     )
-    prompt = node.get('latex_prompt')
-    color = 'nbsphinxin' if prompt.startswith('In') else 'nbsphinxout'
-    prefix = r'\textcolor{' + color + '}{' + prompt + '}' if prompt else ''
-    for line in code_lines[:1]:
-        out.append(prefix + line)
-    prefix = ' ' * len(prompt)
-    for line in code_lines[1:]:
-        out.append(prefix + line)
-    if lines[-2].startswith(r'\end{sphinxVerbatim}'):  # Sphinx >= 1.5
-        out.append(lines[-2].replace('sphinxVerbatim', 'Verbatim'))
-    elif lines[-2].startswith(r'\end{Verbatim}'):  # Sphinx < 1.5
-        out.append(lines[-2].replace('Verbatim', 'OriginalVerbatim'))
-    else:
-        assert False
+    if prompt:
+        prompt = nbconvert.filters.latex.escape_latex(prompt)
+        prefix = r'\llap{\color{' + promptcolor + '}' + prompt + \
+            r'\,\hspace{\fboxrule}\hspace{\fboxsep}}'
+        assert code_lines
+        code_lines[0] = prefix + code_lines[0]
+    out.extend(code_lines)
+    assert 'Verbatim' in lines[-2]
+    out.append(lines[-2])
+    out.append('}')  # End of scope for colors
     assert lines[-1] == ''
     out.append(lines[-1])
     self.body.append('\n'.join(out))
 
 
+def visit_fancyoutput_latex(self, node):
+    out = r"""
+\hrule height -\fboxrule\relax
+\vspace{\nbsphinxcodecellspacing}
+"""
+    prompt = node['prompt']
+    if prompt:
+        prompt = nbconvert.filters.latex.escape_latex(prompt)
+        out += r"""
+\savebox\nbsphinxpromptbox[0pt][r]{\color{nbsphinxout}\Verb|\strut{%s}\,|}
+""" % (prompt,)
+    else:
+        out += r"""
+\makeatletter\setbox\nbsphinxpromptbox\box\voidb@x\makeatother
+"""
+    out += r"""
+\begin{nbsphinxfancyoutput}
+"""
+    self.body.append(out)
+
+
+def depart_fancyoutput_latex(self, node):
+    self.body.append('\n\\end{nbsphinxfancyoutput}\n')
+
+
 def visit_admonition_html(self, node):
     self.body.append(self.starttag(node, 'div'))
-    self.set_first_last(node)
-    if self.settings.env.config.html_theme in ('sphinx_rtd_theme', 'julia'):
-        if node.children:
-            classes = node.children[0]['classes']
-            if 'last' not in classes:
-                classes.extend(['fa', 'fa-exclamation-circle'])
+    if len(node.children) >= 2:
+        node[0]['classes'].append('admonition-title')
+        html_theme = self.settings.env.config.html_theme
+        if html_theme in ('sphinx_rtd_theme', 'julia'):
+            node.children[0]['classes'].extend(['fa', 'fa-exclamation-circle'])
 
 
 def depart_admonition_html(self, node):
@@ -1361,7 +1631,7 @@ def depart_admonition_html(self, node):
 
 
 def visit_admonition_latex(self, node):
-    # See http://tex.stackexchange.com/q/305898/13684:
+    # See http://tex.stackexchange.com/q/305898/:
     self.body.append('\n\\begin{notice}{' + node['classes'][1] + '}{}\\unskip')
 
 
@@ -1398,7 +1668,12 @@ def _add_notebook_parser(app):
 
 def setup(app):
     """Initialize Sphinx extension."""
-    _add_notebook_parser(app)
+    try:
+        # Available since Sphinx 1.8:
+        app.add_source_suffix('.ipynb', 'jupyter_notebook')
+        app.add_source_parser(NotebookParser)
+    except AttributeError:
+        _add_notebook_parser(app)
 
     app.add_config_value('nbsphinx_execute', 'auto', rebuild='env')
     app.add_config_value('nbsphinx_kernel_name', '', rebuild='env')
@@ -1411,14 +1686,20 @@ def setup(app):
     app.add_config_value('nbsphinx_responsive_width', '540px', rebuild='html')
     app.add_config_value('nbsphinx_prolog', None, rebuild='env')
     app.add_config_value('nbsphinx_epilog', None, rebuild='env')
+    app.add_config_value('nbsphinx_input_prompt', '[%s]:', rebuild='env')
+    app.add_config_value('nbsphinx_output_prompt', '[%s]:', rebuild='env')
+    app.add_config_value('nbsphinx_custom_formats', {}, rebuild='env')
 
     app.add_directive('nbinput', NbInput)
     app.add_directive('nboutput', NbOutput)
     app.add_directive('nbinfo', NbInfo)
     app.add_directive('nbwarning', NbWarning)
-    app.add_node(CodeNode,
-                 html=(do_nothing, depart_code_html),
-                 latex=(visit_code_latex, depart_code_latex))
+    app.add_node(CodeAreaNode,
+                 html=(do_nothing, depart_codearea_html),
+                 latex=(visit_codearea_latex, depart_codearea_latex))
+    app.add_node(FancyOutputNode,
+                 html=(do_nothing, do_nothing),
+                 latex=(visit_fancyoutput_latex, depart_fancyoutput_latex))
     app.add_node(AdmonitionNode,
                  html=(visit_admonition_html, depart_admonition_html),
                  latex=(visit_admonition_latex, depart_admonition_latex))
@@ -1427,10 +1708,27 @@ def setup(app):
     app.connect('html-collect-pages', html_collect_pages)
     app.connect('env-purge-doc', env_purge_doc)
     app.add_transform(CreateSectionLabels)
+    app.add_transform(CreateDomainObjectLabels)
+    app.add_transform(RewriteLocalLinks)
 
     # Make docutils' "code" directive (generated by markdown2rst/pandoc)
     # behave like Sphinx's "code-block",
     # see https://github.com/sphinx-doc/sphinx/issues/2155:
     rst.directives.register_directive('code', sphinx.directives.code.CodeBlock)
 
-    return {'version': __version__, 'parallel_read_safe': True}
+    # Work-around until https://github.com/sphinx-doc/sphinx/pull/5504 is done:
+    app.config._raw_config.setdefault('mathjax_config', {
+        'tex2jax': {
+            'inlineMath': [['$', '$'], ['\\(', '\\)']],
+            'processEscapes': True,
+            'ignoreClass': '.*',
+            'processClass': 'math',
+        }
+    })
+
+    return {
+        'version': __version__,
+        'parallel_read_safe': True,
+        'parallel_write_safe': True,
+        'env_version': 1,
+    }
