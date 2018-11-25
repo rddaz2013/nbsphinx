@@ -141,21 +141,24 @@ RST_TEMPLATE = """
 {{ output.data[datatype].strip(\n) | indent }}
 {%- elif datatype in ['image/svg+xml', 'image/png', 'image/jpeg', 'application/pdf'] %}
 
-    .. image:: {{ output.metadata.filenames[datatype] | posix_path }}
+    .. figure:: {{ output.metadata.filenames[datatype] | posix_path }}
+       
+         {{cell.metadata.caption}}
+
 {%- elif datatype in ['text/markdown'] %}
 
-{{ output.data['text/markdown'] | markdown2rst | indent }}
+{{ output.data['text/markdown'] | markdown2rst }}
 {%- elif datatype in ['text/latex'] %}
 
     .. math::
         :nowrap:
 
-{{ output.data['text/latex'] | indent | indent }}
+{{ output.data['text/latex']  }}
 {%- elif datatype == 'text/html' %}
 
     .. raw:: html
 
-{{ output.data['text/html'] | indent | indent }}
+{{ output.data['text/html']  }}
 {%- elif datatype == 'application/javascript' %}
 
     .. raw:: html
@@ -163,7 +166,7 @@ RST_TEMPLATE = """
         <div></div>
         <script type="text/javascript">
         var element = document.currentScript.previousSibling.previousSibling;
-{{ output.data['application/javascript'] | indent | indent }}
+{{ output.data['application/javascript'] }}
         </script>
 {%- elif datatype.startswith('application/vnd.jupyter') and datatype.endswith('+json') %}
 
@@ -183,9 +186,18 @@ RST_TEMPLATE = """
     .. raw:: latex
 
         %
-        \\begin{OriginalVerbatim}[commandchars=\\\\\\{\\}]
+        {
+        \\kern-\\sphinxverbatimsmallskipamount\\kern-\\baselineskip
+        \\kern+\\FrameHeightAdjust\\kern-\\fboxrule
+        \\vspace{\\nbsphinxcodecellspacing}
+        \\sphinxsetup{VerbatimBorderColor={named}{nbsphinx-code-border}}
+    {%- if output.name == 'stderr' %}
+        \\sphinxsetup{VerbatimColor={named}{nbsphinx-stderr}}
+    {%- endif %}
+        \\begin{sphinxVerbatim}[commandchars=\\\\\\{\\}]
 {{ output.data[datatype] | escape_latex | ansi2latex | indent | indent }}
-        \\end{OriginalVerbatim}
+        \\end{sphinxVerbatim}
+        }
         % The following \\relax is needed to avoid problems with adjacent ANSI
         % cells and some other stuff (e.g. bullet lists) following ANSI cells.
         % See https://github.com/sphinx-doc/sphinx/issues/3594
@@ -204,10 +216,10 @@ RST_TEMPLATE = """
 {%- else %}
 .. only:: html
 
-{{ insert_nboutput(html_datatype, output, cell) | indent }}
+{{ insert_nboutput(html_datatype, output, cell)  }}
 .. only:: latex
 
-{{ insert_nboutput(latex_datatype, output, cell) | indent }}
+{{ insert_nboutput(latex_datatype, output, cell)  }}
 {%- endif %}
 {% endblock nboutput %}
 
@@ -217,7 +229,6 @@ RST_TEMPLATE = """
 {% block stream %}{{ self.nboutput() }}{% endblock stream %}
 {% block error %}{{ self.nboutput() }}{% endblock error %}
 
-
 {% block markdowncell %}
 {%- if 'nbsphinx-toctree' in cell.metadata %}
 {{ cell | extract_toctree }}
@@ -225,7 +236,6 @@ RST_TEMPLATE = """
 {{ super() }}
 {% endif %}
 {% endblock markdowncell %}
-
 
 {% block rawcell %}
 {%- set raw_mimetype = cell.metadata.get('raw_mimetype', '').lower() %}
@@ -517,7 +527,7 @@ div.admonition > .first {
 
 /* indent single paragraph */
 div.admonition {
-    text-indent: 20px;
+    text-indent: 0px;
 }
 /* don't indent multiple paragraphs */
 div.admonition > p {
@@ -916,7 +926,8 @@ def pandoc(source, fmt, to, filter_func=None):
         # see issue #155
         cmd += ['--eol', 'lf']
     cmd1 = cmd + ['--from', fmt, '--to', 'json']
-    cmd2 = cmd + ['--from', 'json', '--to', to]
+    to = to + '+grid_tables'
+    cmd2 = cmd + ['--from', 'json', '--to', to,'--columns=500']
     p = subprocess.Popen(cmd1, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     json_data, _ = p.communicate(encode(source))
 
